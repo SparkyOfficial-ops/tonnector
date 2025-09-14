@@ -38,3 +38,14 @@ application {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.named<Jar>("jar") {
+    archiveBaseName.set("tonnector")
+    archiveVersion.set("")
+    manifest {
+        attributes["Main-Class"] = "dev.tonnector.MainKt"
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA", "META-INF/*.EC")
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+}
