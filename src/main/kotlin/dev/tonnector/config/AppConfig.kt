@@ -29,3 +29,42 @@ data class AppConfig(
         else -> "v4r2"
     }
 }
+
+object ConfigStore {
+    private val json = Json {
+        prettyPrint = true
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
+
+    fun load(path: Path, overrides: Map<String, String>): AppConfig {
+        val fileConfig = if (path.exists()) {
+            json.decodeFromString<AppConfig>(path.readText())
+        } else {
+            AppConfig()
+        }
+        var config = fileConfig
+        overrides["port"]?.toIntOrNull()?.let { config = config.copy(port = it) }
+        overrides["host"]?.let { config = config.copy(host = it) }
+        overrides["network"]?.let { config = config.copy(network = it) }
+        overrides["version"]?.let { config = config.copy(version = it) }
+        if (config.mnemonic.isBlank() && config.privateKey.isBlank()) {
+            val generated = Mnemonic.generate()
+            config = config.copy(mnemonic = generated.words.joinToString(" "))
+            save(path, config)
+        } else if (!path.exists()) {
+            save(path, config)
+        }
+        return config
+    }
+
+    fun save(path: Path, config: AppConfig) {
+        path.parent?.toFile()?.mkdirs()
+        path.writeText(json.encodeToString(config) + "\n")
+    }
+
+    fun resolvePath(explicit: String?): Path {
+        if (!explicit.isNullOrBlank()) return Path(explicit)
+        return Path("tonnector.json")
+    }
+}
