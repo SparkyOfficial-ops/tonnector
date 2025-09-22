@@ -39,3 +39,37 @@ fun tonProofHash(message: ByteArray): ByteArray {
         inner
     return sha256(prefixed)
 }
+
+/**
+ * signData text/binary hash.
+ * message = 0xffff || "ton-connect/sign-data/" || address || domain || timestamp || payload
+ * signature = Ed25519(sha256(message))
+ */
+fun signDataHash(
+    workchain: Int,
+    addressHash: ByteArray,
+    domain: String,
+    timestamp: Long,
+    prefix: String,
+    payload: ByteArray,
+): ByteArray {
+    val domainBytes = domain.encodeToByteArray()
+    val prefixBytes = prefix.encodeToByteArray()
+    val size = 2 + "ton-connect/sign-data/".length + 4 + 32 + 4 + domainBytes.size + 8 +
+        prefixBytes.size + 4 + payload.size
+    val out = ByteBuffer.allocate(size)
+    out.put(0xff.toByte())
+    out.put(0xff.toByte())
+    out.put("ton-connect/sign-data/".encodeToByteArray())
+    out.order(ByteOrder.BIG_ENDIAN)
+    out.putInt(workchain)
+    out.put(addressHash)
+    out.order(ByteOrder.LITTLE_ENDIAN)
+    out.putInt(domainBytes.size)
+    out.put(domainBytes)
+    out.putLong(timestamp)
+    out.put(prefixBytes)
+    out.putInt(payload.size)
+    out.put(payload)
+    return sha256(out.array())
+}
