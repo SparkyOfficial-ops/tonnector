@@ -36,3 +36,19 @@ fun parseConnectLink(link: String): Map<String, String> {
 
 private fun String.urlDecode(): String =
     URLDecoder.decode(replace("+", "%2B"), StandardCharsets.UTF_8)
+
+fun domainOf(url: String): String = try {
+    val uri = URI(url)
+    val host = uri.host ?: return url
+    if (uri.port == -1) host else "$host:${uri.port}"
+} catch (_: Exception) {
+    url
+}
+
+fun jsonObject(element: JsonElement?): JsonObject? = element as? JsonObject
+
+fun jsonString(element: JsonElement?): String? = (element as? JsonPrimitive)?.contentOrNull
+
+fun JsonObject.string(name: String): String? = jsonString(this[name])
+
+fun JsonObject.array(name: String): JsonArray? = this[name] as? JsonArray
