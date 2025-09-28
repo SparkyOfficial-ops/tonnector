@@ -18,3 +18,15 @@ fun qrPng(text: String, size: Int = 280): ByteArray {
     ImageIO.write(image, "png", out)
     return out.toByteArray()
 }
+
+fun qrAscii(text: String): String {
+    val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 0, 0)
+    val sb = StringBuilder()
+    for (y in 0 until matrix.height) {
+        for (x in 0 until matrix.width) {
+            sb.append(if (matrix.get(x, y)) "██" else "  ")
+        }
+        sb.append('\n')
+    }
+    return sb.toString()
+}
