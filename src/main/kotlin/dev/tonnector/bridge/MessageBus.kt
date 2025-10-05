@@ -68,3 +68,14 @@ class MessageBus {
         while (events.isNotEmpty() && events.first().expiresAt < now) events.removeFirst()
     }
 }
+
+suspend fun MessageBus.stream(sub: Subscriber, lastEventId: Long, emit: suspend (BridgeEvent) -> Unit) {
+    val seen = HashSet<Long>()
+    for (event in backlog(sub.ids, lastEventId)) {
+        if (seen.add(event.id)) emit(event)
+    }
+    while (coroutineContext.isActive) {
+        val event = sub.channel.receiveCatching().getOrNull() ?: break
+        if (event.id > lastEventId && seen.add(event.id)) emit(event)
+    }
+}
