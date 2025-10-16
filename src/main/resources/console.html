@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TONNECTOR</title>
+<link rel="icon" href="/icon.svg"/>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: "Segoe UI", sans-serif; background: #0b1220; color: #e8eef8; }
+  header { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 16px 22px; background: #121a2b; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .08em; }
+  a { color: #8ebfff; }
+  .pill { padding: 4px 10px; border-radius: 999px; background: #3a2a2a; color: #ffb4b4; font-weight: 700; }
+  .pill.on { background: #173628; color: #8ddeb4; }
+  main { display: grid; grid-template-columns: 340px 1fr 360px; gap: 16px; padding: 16px; }
+  section { background: #121a2b; border-radius: 14px; padding: 14px; min-height: 240px; }
+  h2 { margin: 0 0 10px; font-size: 14px; color: #93a0b8; text-transform: uppercase; letter-spacing: .06em; }
+  code, pre { font-family: Consolas, monospace; font-size: 12px; }
+  .addr { word-break: break-all; }
+  button, .btn { border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 700; cursor: pointer; color: white; background: #2a364f; }
+  button.ok { background: #2f9e6b; }
+  button.no { background: #c44747; }
+  button.bad { background: #8a6a2f; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .item { padding: 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .item.active { border-color: #3d8bfd; background: #18243b; }
+  .pending { color: #ffd27a; }
+  .approved { color: #8ddeb4; }
+  .rejected, .error { color: #ffb4b4; }
+  pre { white-space: pre-wrap; background: #0b1220; padding: 10px; border-radius: 8px; max-height: 320px; overflow: auto; }
+  input, select { background: #0b1220; color: #e8eef8; border: 1px solid #2a364f; border-radius: 8px; padding: 8px; width: 100%; }
+  label { display: block; margin-top: 8px; color: #93a0b8; font-size: 12px; }
+  #log { max-height: 180px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>TONNECTOR</h1>
+    <div id="meta" class="addr"></div>
+  </div>
+  <div id="status" class="pill">Disconnected</div>
+</header>
+<main>
+  <section>
+    <h2>Mock wallet</h2>
+    <div id="identity" class="addr"></div>
+    <label>Seqno</label>
+    <input id="seqno" type="number" min="0"/>
+    <div class="row">
+      <button onclick="saveSeqno()">Save seqno</button>
+      <button onclick="disconnect()">Disconnect</button>
+    </div>
+    <label>Paste a tc:// or http connect link</label>
+    <input id="link" placeholder="tc://connect?v=2&amp;id=..."/>
+    <div class="row"><button class="ok" onclick="pasteLink()">Open link</button></div>
+    <p><a id="sample" href="/sample/">Open the local sample dApp</a></p>
+    <p><a id="wallets" href="/wallets-v2.json">wallets-v2.json</a></p>
+  </section>
+  <section>
+    <h2>Requests</h2>
+    <div id="list"></div>
+  </section>
+  <section>
+    <h2>Detail</h2>
+    <pre id="detail">No request selected.</pre>
+    <div class="row">
+      <button class="ok" onclick="act('approve')">Approve (Sign)</button>
+      <button class="no" onclick="act('reject')">Reject</button>
+      <button class="bad" onclick="act('bad')">Bad request</button>
+      <button onclick="act('unsupported')">Not supported</button>
+    </div>
+    <h2 style="margin-top:16px">Log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+<script>
+let selected = null;
+let lastState = null;
+async function tick() {
+  const [state, requests, log] = await Promise.all([
+    fetch("/api/state").then(r => r.json()),
+    fetch("/api/requests").then(r => r.json()),
+    fetch("/api/log").then(r => r.json())
+  ]);
+  lastState = state;
+  const pill = document.getElementById("status");
+  pill.textContent = state.connected ? "Connected" : "Disconnected";
+  pill.className = "pill" + (state.connected ? " on" : "");
+  document.getElementById("meta").textContent = state.bridgeUrl + "  ·  " + state.network + " " + state.globalId;
+  document.getElementById("identity").innerHTML =
+    "<div><b>" + state.version + "</b> " + state.network + "</div>" +
+    "<div>" + state.address + "</div>" +
+    "<div>" + state.friendly + "</div>" +
+    "<div>pk " + state.publicKey + "</div>";
+  if (document.activeElement !== document.getElementById("seqno")) {
+    document.getElementById("seqno").value = state.seqno;
+  }
+  document.getElementById("sample").href = state.sampleUrl;
+  document.getElementById("wallets").href = state.walletsUrl;
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  if (!selected && requests.length) selected = requests[0].id;
+  for (const req of requests) {
+    const div = document.createElement("div");
+    div.className = "item" + (req.id === selected ? " active" : "");
+    div.innerHTML = "<b>" + escapeHtml(req.title) + "</b><div class='" + req.status + "'>" + req.status + "</div><div>" + escapeHtml(req.summary) + "</div>";
+    div.onclick = () => { selected = req.id; renderDetail(requests); tick(); };
+    list.appendChild(div);
+  }
+  renderDetail(requests);
+  document.getElementById("log").textContent = log.join("\n");
+}
+function renderDetail(requests) {
+  const req = requests.find(r => r.id === selected);
+  document.getElementById("detail").textContent = req ? req.detail : "No request selected.";
+}
+function escapeHtml(s) { return (s || "").replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+async function act(kind) {
+  if (!selected) return;
+  const url = kind === "approve"
+    ? "/api/requests/" + selected + "/approve"
+    : "/api/requests/" + selected + "/reject?code=" + (kind === "bad" ? 1 : kind === "unsupported" ? 400 : 300);
+  await fetch(url, { method: "POST" });
+  tick();
+}
+async function saveSeqno() {
+  await fetch("/api/seqno", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seqno: Number(document.getElementById("seqno").value) }) });
+  tick();
+}
+async function disconnect() { await fetch("/api/disconnect", { method: "POST" }); tick(); }
+async function pasteLink() {
+  await fetch("/api/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link: document.getElementById("link").value }) });
+  selected = null;
+  tick();
+}
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
