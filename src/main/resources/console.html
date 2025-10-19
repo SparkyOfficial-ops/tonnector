@@ -102,7 +102,10 @@ async function tick() {
   document.getElementById("wallets").href = state.walletsUrl;
   const list = document.getElementById("list");
   list.innerHTML = "";
-  if (!selected && requests.length) selected = requests[0].id;
+  const pending = requests.find(r => r.status === "pending");
+  if (pending && (!selected || !requests.some(r => r.id === selected && r.status === "pending"))) {
+    selected = pending.id;
+  }
   for (const req of requests) {
     const div = document.createElement("div");
     div.className = "item" + (req.id === selected ? " active" : "");
