@@ -1,11 +1,136 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>TONNECTOR sample</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>TONNECTOR sample dApp</title>
+<link rel="icon" href="/icon.svg"/>
+<script src="nacl-fast.min.js"></script>
+<style>
+  body { margin: 0; font-family: "Segoe UI", sans-serif; background: #0b1220; color: #e8eef8; }
+  main { max-width: 760px; margin: 32px auto; padding: 0 16px 48px; }
+  a { color: #8ebfff; }
+  button { background: #0098ea; color: white; border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 700; cursor: pointer; margin-right: 8px; }
+  button.alt { background: #2a364f; }
+  pre { white-space: pre-wrap; background: #121a2b; padding: 12px; border-radius: 10px; }
+  .card { background: #121a2b; border-radius: 14px; padding: 16px; margin-top: 16px; }
+</style>
 </head>
 <body>
-<h1>Пример dApp</h1>
-<p>Страница ещё не говорит с мостом. Сначала нужно открыть connect-ссылку и дождаться Approve.</p>
+<main>
+  <h1>Sample dApp</h1>
+  <p>This page speaks TonConnect 2.0 to the local bridge. No ngrok, no phone.</p>
+  <div class="card">
+    <button id="connect">Connect TONNECTOR</button>
+    <button id="send" class="alt" disabled>Send 0.001 TON</button>
+    <button id="sign" class="alt" disabled>Sign data</button>
+    <p id="linkbox"></p>
+  </div>
+  <div class="card">
+    <h2>Session</h2>
+    <pre id="out">Not connected.</pre>
+  </div>
+</main>
+<script>
+const out = document.getElementById("out");
+const kp = nacl.box.keyPair();
+const clientId = hex(kp.publicKey);
+let walletId = null;
+let walletPub = null;
+let address = null;
+let network = null;
+const lines = [];
+function log(line) { lines.push(line); out.textContent = lines.join("\n"); }
+function hex(bytes) { return [...bytes].map(b => b.toString(16).padStart(2, "0")).join(""); }
+function fromHex(value) {
+  const out = new Uint8Array(value.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(value.substr(i * 2, 2), 16);
+  return out;
+}
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function bytesToB64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function decrypt(b64, theirPub) {
+  const full = b64ToBytes(b64);
+  const opened = nacl.box.open(full.slice(24), full.slice(0, 24), theirPub, kp.secretKey);
+  if (!opened) throw new Error("nacl.box.open failed");
+  return new TextDecoder().decode(opened);
+}
+function encrypt(text, theirPub) {
+  const nonce = nacl.randomBytes(24);
+  const boxed = nacl.box(new TextEncoder().encode(text), nonce, theirPub, kp.secretKey);
+  const full = new Uint8Array(nonce.length + boxed.length);
+  full.set(nonce, 0);
+  full.set(boxed, nonce.length);
+  return bytesToB64(full);
+}
+
+const events = new EventSource("/bridge/events?client_id=" + clientId);
+events.addEventListener("message", (ev) => {
+  const data = JSON.parse(ev.data);
+  try {
+    const plain = decrypt(data.message, fromHex(data.from));
+    log("← " + plain);
+    const msg = JSON.parse(plain);
+    if (msg.event === "connect") {
+      walletId = data.from;
+      walletPub = fromHex(data.from);
+      const addr = msg.payload.items.find(i => i.name === "ton_addr");
+      address = addr.address;
+      network = addr.network;
+      document.getElementById("send").disabled = false;
+      document.getElementById("sign").disabled = false;
+      log("connected " + address + " network " + network);
+    }
+    if (msg.result && typeof msg.result === "string") log("signed boc:\n" + msg.result);
+  } catch (e) {
+    log("decrypt error: " + e.message);
+  }
+});
+
+document.getElementById("connect").onclick = () => {
+  const request = {
+    manifestUrl: location.origin + "/sample/tonconnect-manifest.json",
+    items: [{ name: "ton_addr" }, { name: "ton_proof", payload: "tonnector-" + Date.now() }]
+  };
+  const link = location.origin + "/ton-connect?v=2&id=" + clientId + "&r=" + encodeURIComponent(JSON.stringify(request)) + "&ret=back";
+  const a = document.createElement("a");
+  a.href = link;
+  a.target = "_blank";
+  a.textContent = "Open the connect request";
+  const box = document.getElementById("linkbox");
+  box.innerHTML = "";
+  box.appendChild(a);
+  window.open(link, "tonnector");
+  log("waiting for approve…");
+};
+
+async function post(method, params) {
+  const body = encrypt(JSON.stringify({ id: String(Date.now()), method, params }), walletPub);
+  const res = await fetch("/bridge/message?client_id=" + clientId + "&to=" + walletId + "&ttl=300", { method: "POST", body });
+  log("posted " + method + " → " + res.status + ". Approve it in TONNECTOR.");
+}
+document.getElementById("send").onclick = () => post("sendTransaction", [JSON.stringify({
+  valid_until: Math.floor(Date.now() / 1000) + 300,
+  network: network,
+  from: address,
+  messages: [{ address: address, amount: "1000000" }]
+})]);
+document.getElementById("sign").onclick = () => post("signData", [JSON.stringify({
+  type: "text",
+  text: "hello from TONNECTOR",
+  network: network,
+  from: address
+})]);
+log("dApp client " + clientId);
+</script>
 </body>
 </html>
